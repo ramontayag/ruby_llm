@@ -45,7 +45,8 @@ module RubyLLM
             tool_calls: parse_tool_calls(message_data['tool_calls']),
             input_tokens: data['usage']['prompt_tokens'],
             output_tokens: data['usage']['completion_tokens'],
-            model_id: data['model']
+            model_id: data['model'],
+            usage_limits: parse_usage_limits(response.headers)
           )
         end
 
@@ -67,6 +68,19 @@ module RubyLLM
           else
             role.to_s
           end
+        end
+
+        def parse_usage_limits(headers)
+          return {} unless headers
+
+          {}.tap do |limits|
+            limits[:remaining_requests] = headers['x-ratelimit-remaining-requests']&.to_i
+            limits[:remaining_tokens] = headers['x-ratelimit-remaining-tokens']&.to_i
+            limits[:reset_requests] = headers['x-ratelimit-reset-requests']
+            limits[:reset_tokens] = headers['x-ratelimit-reset-tokens']
+            limits[:limit_requests] = headers['x-ratelimit-limit-requests']&.to_i
+            limits[:limit_tokens] = headers['x-ratelimit-limit-tokens']&.to_i
+          end.compact
         end
       end
     end

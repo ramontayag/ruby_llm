@@ -57,7 +57,7 @@ module RubyLLM
           text_content = extract_text_content(content_blocks)
           tool_use = Tools.find_tool_use(content_blocks)
 
-          build_message(data, text_content, tool_use)
+          build_message(data, text_content, tool_use, response.headers)
         end
 
         def extract_text_content(blocks)
@@ -65,14 +65,15 @@ module RubyLLM
           text_blocks.map { |c| c['text'] }.join
         end
 
-        def build_message(data, content, tool_use)
+        def build_message(data, content, tool_use, headers = nil)
           Message.new(
             role: :assistant,
             content: content,
             tool_calls: Tools.parse_tool_calls(tool_use),
             input_tokens: data.dig('usage', 'input_tokens'),
             output_tokens: data.dig('usage', 'output_tokens'),
-            model_id: data['model']
+            model_id: data['model'],
+            usage_limits: parse_usage_limits(headers)
           )
         end
 
@@ -98,6 +99,19 @@ module RubyLLM
           when :tool, :user then 'user'
           else 'assistant'
           end
+        end
+
+        def parse_usage_limits(headers)
+          return {} unless headers
+
+          {}.tap do |limits|
+            limits[:remaining_requests] = headers['anthropic-ratelimit-requests-remaining']&.to_i
+            limits[:remaining_tokens] = headers['anthropic-ratelimit-tokens-remaining']&.to_i
+            limits[:reset_requests] = headers['anthropic-ratelimit-requests-reset']
+            limits[:reset_tokens] = headers['anthropic-ratelimit-tokens-reset']
+            limits[:limit_requests] = headers['anthropic-ratelimit-requests-limit']&.to_i
+            limits[:limit_tokens] = headers['anthropic-ratelimit-tokens-limit']&.to_i
+          end.compact
         end
       end
     end
