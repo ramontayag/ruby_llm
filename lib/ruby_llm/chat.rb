@@ -136,38 +136,9 @@ module RubyLLM
       messages.each(&)
     end
 
-    def complete(&) # rubocop:disable Metrics/PerceivedComplexity
-      response = @provider.complete(
-        messages,
-        tools: @tools,
-        tool_prefs: @tool_prefs,
-        temperature: @temperature,
-        model: @model,
-        params: @params,
-        headers: @headers,
-        schema: @schema,
-        thinking: @thinking,
-        &wrap_streaming_block(&)
-      )
-
-      @on[:new_message]&.call unless block_given?
-
-      if @schema && response.content.is_a?(String) && !response.tool_call?
-        begin
-          response.content = JSON.parse(response.content)
-        rescue JSON::ParserError
-          # If parsing fails, keep content as string
-        end
-      end
-
-      add_message response
-      @on[:end_message]&.call(response)
-
-      if response.tool_call?
-        handle_tool_calls(response, &)
-      else
-        response
-      end
+    def complete(&)
+      response = call_provider(&)
+      response.tool_call? ? handle_tool_calls(response, &) : response
     end
 
     def add_message(message_or_attributes)
@@ -231,7 +202,36 @@ module RubyLLM
       end
     end
 
-    def handle_tool_calls(response, &) # rubocop:disable Metrics/PerceivedComplexity
+    def call_provider(&)
+      response = @provider.complete(
+        messages,
+        tools: @tools,
+        tool_prefs: @tool_prefs,
+        temperature: @temperature,
+        model: @model,
+        params: @params,
+        headers: @headers,
+        schema: @schema,
+        thinking: @thinking,
+        &wrap_streaming_block(&)
+      )
+
+      @on[:new_message]&.call unless block_given?
+      parse_schema_response response
+      add_message response
+      @on[:end_message]&.call(response)
+      response
+    end
+
+    def parse_schema_response(response)
+      return unless @schema && response.content.is_a?(String) && !response.tool_call?
+
+      response.content = JSON.parse(response.content)
+    rescue JSON::ParserError
+      # If parsing fails, keep content as string
+    end
+
+    def execute_tool_calls(response)
       halt_result = nil
 
       response.tool_calls.each_value do |tool_call|
@@ -248,7 +248,11 @@ module RubyLLM
       end
 
       reset_tool_choice if forced_tool_choice?
-      halt_result || complete(&)
+      halt_result
+    end
+
+    def handle_tool_calls(response, &)
+      execute_tool_calls(response) || complete(&)
     end
 
     def execute_tool(tool_call)
