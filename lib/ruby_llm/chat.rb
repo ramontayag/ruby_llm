@@ -136,9 +136,18 @@ module RubyLLM
       messages.each(&)
     end
 
-    def complete(&)
+    def step(&)
       response = call_provider(&)
-      response.tool_call? ? handle_tool_calls(response, &) : response
+      return response unless response.tool_call?
+
+      execute_tool_calls(response) || response
+    end
+
+    def complete(&)
+      response = step(&)
+      return response if response.is_a?(Tool::Halt)
+
+      response.tool_call? ? complete(&) : response
     end
 
     def add_message(message_or_attributes)
@@ -249,10 +258,6 @@ module RubyLLM
 
       reset_tool_choice if forced_tool_choice?
       halt_result
-    end
-
-    def handle_tool_calls(response, &)
-      execute_tool_calls(response) || complete(&)
     end
 
     def execute_tool(tool_call)
